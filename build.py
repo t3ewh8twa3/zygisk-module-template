@@ -232,7 +232,7 @@ def clean_cmd(args):
 
 def build_zip(args):
     build_type = BUILD_TYPE
-    for abi in ABI_TO_ARCH:
+    for abi in SUPPORTED_ABIS:
         build_all(
             abi=abi, plat=PLATFORM, build_type=build_type, force=args.force
         )
