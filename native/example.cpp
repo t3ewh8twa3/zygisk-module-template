@@ -3,52 +3,65 @@
 #include <string.h>
 #include <stdio.h>
 #include <android/log.h>
-#include "dobby.h" // 引入 Dobby 库头文件
+#include "zygisk.hpp"
 
-// 定义 LOGD 宏，方便打印日志到 logcat
 #define TAG "MyZygiskModule"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
-// 1. 定义原函数指针
-int (*orig___system_property_get)(const char *name, char *value);
 
-// 2. 自定义的 __system_property_get 替身函数
-int my___system_property_get(const char *name, char *value) {
+// 1. 定义原函数指针
+static int (*orig___system_property_get)(const char *name, char *value) = nullptr;
+
+// 2. 我们的自定义替身函数（在这里把主板ID和序列号替换掉）
+static int my___system_property_get(const char *name, char *value) {
     if (name != nullptr) {
-        // 伪装序列号 (ro.serialno / ro.boot.serialno)
+        // 序列号
         if (strcmp(name, "ro.serialno") == 0 || strcmp(name, "ro.boot.serialno") == 0) {
-            strcpy(value, "bb17f688"); 
-            return strlen(value);
+            strcpy(value, "bb17f688");
+            return (int)strlen(value);
         }
-        // 伪装主板ID (ro.product.board / ro.board.platform)
+        // 主板ID
         if (strcmp(name, "ro.product.board") == 0 || strcmp(name, "ro.board.platform") == 0) {
-            strcpy(value, "466925547"); 
-            return strlen(value);
+            strcpy(value, "466925547");
+            return (int)strlen(value);
         }
     }
     return orig___system_property_get(name, value);
 }
 
-void postAppSpecialize(const AppSpecializeArgs *args) override {
-    // 手动在此处指定你的目标包名
-    const char *target_pkg_name = "com.nhlx.cmuroe"; 
+class MyPropertyHookModule : public zygisk::ModuleBase {
+public:
+    void onLoad(zygisk::Api *api, JNIEnv *env) override {
+        this->api = api;
+        this->env = env;
+    }
 
-    // 获取当前进程的包名 (Zygisk 环境下 args->nice_name 即为当前进程包名)
-    bool is_target_app = false;
-    if (args->nice_name != nullptr && target_pkg_name != nullptr) {
-        if (strcmp(args->nice_name, target_pkg_name) == 0) {
-            is_target_app = true;
+    void postAppSpecialize(const zygisk::AppSpecializeArgs *args) override {
+        // 在这里填入你的目标 App 包名
+        const char *target_pkg_name = "com.your.target.package"; 
+
+        bool is_target_app = false;
+        if (args->nice_name != nullptr && target_pkg_name != nullptr) {
+            if (strcmp(args->nice_name, target_pkg_name) == 0) {
+                is_target_app = true;
+            }
+        }
+
+        // 仅在目标应用进程中生效
+        if (is_target_app) {
+            LOGD("命中目标包名: %s，开始注入硬件伪装...", args->nice_name);
+
+            // 使用 Zygisk 自带的 plt_hook 拦截 libc 中的 __system_property_get
+            zygisk::plt_hook_commit(
+                zygisk::plt_hook_by_name("libc.so", "__system_property_get", 
+                (void *)my___system_property_get, (void **)&orig___system_property_get)
+            );
         }
     }
 
-    // 只有当命中目标包名时，才在目标进程里执行真正的 Hook 操作
-    if (is_target_app) {
-        LOGD("命中目标包名，开始在目标进程执行局部 Hook...");
-        
-        // 执行 Dobby Hook 拦截 __system_property_get
-        void *sym_get = DobbySymbolResolver(nullptr, "__system_property_get");
-        if (sym_get) {
-            DobbyHook(sym_get, (void *)my___system_property_get, (void **)&orig___system_property_get);
-            LOGD("__system_property_get Hook 成功，已注入指定参数");
-        }
-    }
-}
+private:
+    zygisk::Api *api;
+    JNIEnv *env;
+};
+
+// 注册模块
+REGISTER_ZYGISK_MODULE(MyPropertyHookModule)
