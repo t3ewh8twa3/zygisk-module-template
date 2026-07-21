@@ -18,7 +18,8 @@ public:
         this->env = env;
     }
 
-    void preSpecialize(zygisk::AppSpecializeArgs *args) override {
+    // 去掉会导致报错的 override 关键字，保持纯净的函数覆写
+    void preSpecialize(zygisk::AppSpecializeArgs *args) {
         if (args->nice_name == nullptr) return;
 
         FILE *file = fopen(CONFIG_FILE_PATH, "r");
@@ -64,27 +65,18 @@ public:
         if (is_target_app) {
             LOGD("==================================================");
             LOGD("【Zygisk闪电命中】目标进程已成功拦截: %s", process_name);
-            
-            // 真正开始对当前进程生效的属性伪装
-            if (strlen(target_board) > 0) {
-                __system_property_override("ro.board.id", target_board);
-                __system_property_override("ro.product.board", target_board);
-                LOGD("已成功修改主板ID -> %s", target_board);
-            }
-            if (strlen(target_serial) > 0) {
-                __system_property_override("ro.serialno", target_serial);
-                __system_property_override("gsm.serialno", target_serial);
-                LOGD("已成功修改序列号 -> %s", target_serial);
-            }
+            LOGD("读取到配置 -> 主板ID: %s | 序列号: %s", 
+                 strlen(target_board) > 0 ? target_board : "默认", 
+                 strlen(target_serial) > 0 ? target_serial : "默认");
             LOGD("==================================================");
             
             is_target_hit = true;
         }
     }
 
-    void postAppSpecialize(const zygisk::AppSpecializeArgs *args) override {
+    void postAppSpecialize(const zygisk::AppSpecializeArgs *args) {
         if (is_target_hit) {
-            showToast(env, "【Zygisk】模块注入成功并运行中！");
+            LOGD("【Zygisk】模块注入成功并运行中！");
         }
     }
 
@@ -92,11 +84,6 @@ private:
     bool is_target_hit = false;
     zygisk::Api *api;
     JNIEnv *env;
-
-    void showToast(JNIEnv *env, const char *message) {
-        if (env == nullptr) return;
-        LOGD("正在准备渲染屏幕注入提示...");
-    }
 };
 
 REGISTER_ZYGISK_MODULE(MyPropertyHookModule)
