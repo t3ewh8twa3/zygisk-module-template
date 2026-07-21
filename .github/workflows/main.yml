@@ -27,7 +27,7 @@ jobs:
 
       - name: Build Module
         run: |
-          python build.py
+          python build.py zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
