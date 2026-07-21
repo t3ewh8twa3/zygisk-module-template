@@ -16,7 +16,7 @@ jobs:
           submodules: recursive
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: setup-python@v5
         with:
           python-version: '3.12'
 
@@ -29,12 +29,18 @@ jobs:
         run: |
           python build.py zip
 
+      # 调试步骤：打印当前工作目录下的所有文件和文件夹，方便确认 zip 生成的位置
+      - name: List files for debugging
+        run: |
+          find . -maxdepth 3 -not -path '*/.*'
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: zygisk-module
           path: |
-            build/*.zip
-            out/*.zip
             *.zip
-          if-no-files-found: ignore
+            **/*.zip
+            out/**
+            build/**
+          if-no-files-found: warn
