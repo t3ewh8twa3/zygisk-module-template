@@ -86,3 +86,27 @@ fi
 
 ui_print "- Setting permissions"
 set_perm_recursive "$MODPATH" 0 0 0755 0644
+# ==========================================
+# 自动生成 BY 配置文件
+# ==========================================
+CONFIG_DIR="/data/adb/modules/BY"
+CONFIG_FILE="$CONFIG_DIR/by.txt"
+
+ui_print "- 正在检查/初始化 BY 配置文件..."
+
+mkdir -p "$CONFIG_DIR"
+chmod 777 "$CONFIG_DIR"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    cat << 'EOF' > "$CONFIG_FILE"
+466925547
+bb17f688
+# 在下面写你的目标包名，一行一个
+com.example.app1
+com.example.app2
+EOF
+    chmod 666 "$CONFIG_FILE"
+    ui_print "- [成功] 已自动创建配置文件: $CONFIG_FILE"
+else
+    ui_print "- [跳过] 配置文件已存在，保留当前设置"
+fi
