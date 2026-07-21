@@ -2,8 +2,9 @@ name: Build Zygisk Module
 
 on:
   push:
-    branches: [ "master", "main" ]
-  workflow_dispatch:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
 
 jobs:
   build:
@@ -12,34 +13,23 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
 
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v3
         with:
-          ndk-version: r25c
+          ndk-version: r27c
+          local-cache: true
 
       - name: Build Module
-        run: |
-          python build.py release
-
-      - name: List files for debugging
-        run: |
-          find . -maxdepth 3 -not -path '*/.*'
+        run: python build.py -t release zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: zygisk-module
-          path: |
-            *.zip
-            **/*.zip
-            out/**
-            build/**
-          if-no-files-found: warn
+          path: release/*.zip
