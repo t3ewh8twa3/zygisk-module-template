@@ -18,7 +18,6 @@ public:
         this->env = env;
     }
 
-    // 去掉会导致报错的 override 关键字，保持纯净的函数覆写
     void preSpecialize(zygisk::AppSpecializeArgs *args) {
         if (args->nice_name == nullptr) return;
 
@@ -65,18 +64,15 @@ public:
         if (is_target_app) {
             LOGD("==================================================");
             LOGD("【Zygisk闪电命中】目标进程已成功拦截: %s", process_name);
-            LOGD("读取到配置 -> 主板ID: %s | 序列号: %s", 
-                 strlen(target_board) > 0 ? target_board : "默认", 
-                 strlen(target_serial) > 0 ? target_serial : "默认");
             LOGD("==================================================");
-            
             is_target_hit = true;
         }
     }
 
     void postAppSpecialize(const zygisk::AppSpecializeArgs *args) {
-        if (is_target_hit) {
-            LOGD("【Zygisk】模块注入成功并运行中！");
+        if (is_target_hit && env != nullptr) {
+            // 在 App 进程初始化完成后，通过 JNI 安全在屏幕弹出一个短暂的 Toast 提示
+            showToast(env, "【Zygisk】注入成功，参数已生效！");
         }
     }
 
@@ -84,6 +80,45 @@ private:
     bool is_target_hit = false;
     zygisk::Api *api;
     JNIEnv *env;
+
+    void showToast(JNIEnv *env, const char *message) {
+        if (env == nullptr) return;
+
+        // 通过反射调用 Android 的 Toast.makeText 并 show
+        jclass activity_thread_cls = env->FindClass("android/app/ActivityThread");
+        if (activity_thread_cls == nullptr) return;
+
+        jmethodID current_activity_thread = env->GetStaticMethodID(activity_thread_cls, "currentActivityThread", "()Landroid/app/ActivityThread;");
+        if (current_activity_thread == nullptr) return;
+
+        jobject at = env->CallStaticObjectMethod(activity_thread_cls, current_activity_thread);
+        if (at == nullptr) return;
+
+        jmethodID get_application = env->GetMethodID(activity_thread_cls, "getApplication", "()Landroid/app/Application;");
+        if (get_application == nullptr) return;
+
+        jobject context = env->CallObjectMethod(at, get_application);
+        if (context == nullptr) return;
+
+        jclass toast_cls = env->FindClass("android/widget/Toast");
+        if (toast_cls == nullptr) return;
+
+        jmethodID make_text = env->GetStaticMethodID(toast_cls, "makeText", "(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;");
+        if (make_text == nullptr) return;
+
+        jstring msg_str = env->NewStringUTF(message);
+        // LENGTH_SHORT = 0
+        jobject toast_obj = env->CallStaticObjectMethod(toast_cls, make_text, context, msg_str, 0);
+        if (toast_obj == nullptr) return;
+
+        jmethodID show_method = env->GetMethodID(toast_cls, "show", "()V");
+        if (show_method != nullptr) {
+            env->CallVoidMethod(toast_obj, show_method);
+            LOGD("屏幕 Toast 提示已成功发出！");
+        }
+
+        env->DeleteLocalRef(msg_str);
+    }
 };
 
 REGISTER_ZYGISK_MODULE(MyPropertyHookModule)
