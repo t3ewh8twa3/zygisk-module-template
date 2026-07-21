@@ -27,7 +27,7 @@ jobs:
 
       - name: Build Module
         run: |
-          python build.py zip
+          python build.py release
 
       - name: List files for debugging
         run: |
