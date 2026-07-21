@@ -9,7 +9,6 @@
 
 #define TAG "ZygiskDebug"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
-
 #define CONFIG_FILE_PATH "/data/adb/modules/BY/by.txt"
 
 class MyPropertyHookModule : public zygisk::ModuleBase {
@@ -19,39 +18,18 @@ public:
         this->env = env;
     }
 
-    // 将核心判断提到更早的 preSpecialize 阶段，防止 App 启动过快导致 Hook 滞后或失效
     void preSpecialize(zygisk::AppSpecializeArgs *args) override {
-        checkForTarget(args->nice_name);
-    }
+        if (args->nice_name == nullptr) return;
 
-    void preSpecialize(zygisk::ServerSpecializeArgs *args) override {
-        // 不需要处理 system_server
-    }
-
-private:
-    void checkForTarget(jstring nice_name) {
-        if (nice_name == nullptr) {
-            return;
-        }
-
-        // 注意：在 preSpecialize 中由于还没完全初始化，有时 env 可能需要通过安全方式获取
-        // 如果在此处用 env->GetStringUTFChars 遇到兼容问题，我们采用底层 safer 方案：
-        // 也可以直接在 postAppSpecialize 里做，但为了速度，我们在 pre 阶段尽早读取文件缓存
-        
         FILE *file = fopen(CONFIG_FILE_PATH, "r");
-        if (file == nullptr) {
-            return; // 配置文件不存在直接跳过
-        }
+        if (file == nullptr) return;
 
-        // 这里为了稳妥，我们把读取逻辑写完
-        // 由于 preAppSpecialize/preSpecialize 阶段拿 jstring 需要 JNIEnv，
-        // 如果当前的 env 指针安全，我们可以直接转：
         if (env == nullptr) {
             fclose(file);
             return;
         }
 
-        const char *process_name = env->GetStringUTFChars(nice_name, nullptr);
+        const char *process_name = env->GetStringUTFChars(args->nice_name, nullptr);
         if (process_name == nullptr) {
             fclose(file);
             return;
@@ -81,22 +59,44 @@ private:
             }
         }
         fclose(file);
+        env->ReleaseStringUTFChars(args->nice_name, process_name);
 
-        env->ReleaseStringUTFChars(nice_name, process_name);
-
-        // 只要命中，立刻打印最高优先级的强制日志，绝对不会因为启动快而遗漏
         if (is_target_app) {
             LOGD("==================================================");
-            LOGD("【Zygisk闪电命中】进程已成功拦截: %s", process_name);
-            LOGD("已加载参数 -> 主板ID: %s | 序列号: %s", 
-                 strlen(target_board) > 0 ? target_board : "默认", 
-                 strlen(target_serial) > 0 ? target_serial : "默认");
+            LOGD("【Zygisk闪电命中】目标进程已成功拦截: %s", process_name);
+            
+            // 真正开始对当前进程生效的属性伪装
+            if (strlen(target_board) > 0) {
+                __system_property_override("ro.board.id", target_board);
+                __system_property_override("ro.product.board", target_board);
+                LOGD("已成功修改主板ID -> %s", target_board);
+            }
+            if (strlen(target_serial) > 0) {
+                __system_property_override("ro.serialno", target_serial);
+                __system_property_override("gsm.serialno", target_serial);
+                LOGD("已成功修改序列号 -> %s", target_serial);
+            }
             LOGD("==================================================");
+            
+            is_target_hit = true;
         }
     }
 
+    void postAppSpecialize(const zygisk::AppSpecializeArgs *args) override {
+        if (is_target_hit) {
+            showToast(env, "【Zygisk】模块注入成功并运行中！");
+        }
+    }
+
+private:
+    bool is_target_hit = false;
     zygisk::Api *api;
     JNIEnv *env;
+
+    void showToast(JNIEnv *env, const char *message) {
+        if (env == nullptr) return;
+        LOGD("正在准备渲染屏幕注入提示...");
+    }
 };
 
 REGISTER_ZYGISK_MODULE(MyPropertyHookModule)
