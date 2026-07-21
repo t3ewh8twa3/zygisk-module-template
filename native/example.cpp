@@ -1,7 +1,13 @@
+#include <jni.h>
 #include <sys/system_properties.h>
 #include <string.h>
 #include <stdio.h>
+#include <android/log.h>
+#include "dobby.h" // 引入 Dobby 库头文件
 
+// 定义 LOGD 宏，方便打印日志到 logcat
+#define TAG "MyZygiskModule"
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 // 1. 定义原函数指针
 int (*orig___system_property_get)(const char *name, char *value);
 
