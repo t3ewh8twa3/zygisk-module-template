@@ -1,79 +1,48 @@
-/* Copyright 2022-2023 John "topjohnwu" Wu
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
- * REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
- * AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
- * INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
- * LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
- * OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
- */
+#include <sys/system_properties.h>
+#include <string.h>
+#include <stdio.h>
 
-#include <cstdlib>
-#include <unistd.h>
-#include <fcntl.h>
-#include <android/log.h>
+// 1. 定义原函数指针
+int (*orig___system_property_get)(const char *name, char *value);
 
-#include "zygisk.hpp"
-
-using zygisk::Api;
-using zygisk::AppSpecializeArgs;
-using zygisk::ServerSpecializeArgs;
-
-#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "MyModule", __VA_ARGS__)
-
-class MyModule : public zygisk::ModuleBase {
-public:
-    void onLoad(Api *api, JNIEnv *env) override {
-        this->api = api;
-        this->env = env;
+// 2. 自定义的 __system_property_get 替身函数
+int my___system_property_get(const char *name, char *value) {
+    if (name != nullptr) {
+        // 伪装序列号 (ro.serialno / ro.boot.serialno)
+        if (strcmp(name, "ro.serialno") == 0 || strcmp(name, "ro.boot.serialno") == 0) {
+            strcpy(value, "bb17f688"); 
+            return strlen(value);
+        }
+        // 伪装主板ID (ro.product.board / ro.board.platform)
+        if (strcmp(name, "ro.product.board") == 0 || strcmp(name, "ro.board.platform") == 0) {
+            strcpy(value, "466925547"); 
+            return strlen(value);
+        }
     }
-
-    void preAppSpecialize(AppSpecializeArgs *args) override {
-        // Use JNI to fetch our process name
-        const char *process = env->GetStringUTFChars(args->nice_name, nullptr);
-        preSpecialize(process);
-        env->ReleaseStringUTFChars(args->nice_name, process);
-    }
-
-    void preServerSpecialize(ServerSpecializeArgs *args) override {
-        preSpecialize("system_server");
-    }
-
-private:
-    Api *api;
-    JNIEnv *env;
-
-    void preSpecialize(const char *process) {
-        // Demonstrate connecting to to companion process
-        // We ask the companion for a random number
-        unsigned r = 0;
-        int fd = api->connectCompanion();
-        read(fd, &r, sizeof(r));
-        close(fd);
-        LOGD("process=[%s], r=[%u]\n", process, r);
-
-        // Since we do not hook any functions, we should let Zygisk dlclose ourselves
-        api->setOption(zygisk::Option::DLCLOSE_MODULE_LIBRARY);
-    }
-
-};
-
-static int urandom = -1;
-
-static void companion_handler(int i) {
-    if (urandom < 0) {
-        urandom = open("/dev/urandom", O_RDONLY);
-    }
-    unsigned r;
-    read(urandom, &r, sizeof(r));
-    LOGD("companion r=[%u]\n", r);
-    write(i, &r, sizeof(r));
+    return orig___system_property_get(name, value);
 }
 
-// Register our module class and the companion handler function
-REGISTER_ZYGISK_MODULE(MyModule)
-REGISTER_ZYGISK_COMPANION(companion_handler)
+void postAppSpecialize(const AppSpecializeArgs *args) override {
+    // 手动在此处指定你的目标包名
+    const char *target_pkg_name = "com.nhlx.cmuroe"; 
+
+    // 获取当前进程的包名 (Zygisk 环境下 args->nice_name 即为当前进程包名)
+    bool is_target_app = false;
+    if (args->nice_name != nullptr && target_pkg_name != nullptr) {
+        if (strcmp(args->nice_name, target_pkg_name) == 0) {
+            is_target_app = true;
+        }
+    }
+
+    // 只有当命中目标包名时，才在目标进程里执行真正的 Hook 操作
+    if (is_target_app) {
+        LOGD("命中目标包名，开始在目标进程执行局部 Hook...");
+        
+        // 执行 Dobby Hook 拦截 __system_property_get
+        void *sym_get = DobbySymbolResolver(nullptr, "__system_property_get");
+        if (sym_get) {
+            DobbyHook(sym_get, (void *)my___system_property_get, (void **)&orig___system_property_get);
+            LOGD("__system_property_get Hook 成功，已注入指定参数");
+        }
+    }
+}
